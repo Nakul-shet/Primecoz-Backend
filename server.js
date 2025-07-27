@@ -111,6 +111,8 @@ const sendEmails = async (emails, subject, body) => {
         subject: subject,
         html: body
       };
+
+      console.log(mailOptions)
       
       const result = await transporter.sendMail(mailOptions);
       results.push({
@@ -118,6 +120,8 @@ const sendEmails = async (emails, subject, body) => {
         status: 'success',
         messageId: result.messageId
       });
+
+      console.log(results)
       
       console.log(`Email sent successfully to ${emailData.email}`);
     } catch (error) {
@@ -244,9 +248,13 @@ app.get('/api/test-email-config', async (req, res) => {
   }
 });
 
+var currentAmount = 0;
+
 app.post('/api/create-order', async (req, res) => {
   try {
     const { amount, plan, user_email, user_name } = req.body;
+
+    currentAmount = amount/100;
 
     const razorpay = new Razorpay({
       key_id: process.env.RAZORPAY_KEY_ID,
@@ -313,9 +321,24 @@ app.post('/api/verify-payment', async (req, res) => {
 
       await PaymentTotal.findOneAndUpdate(
         {},
-        { $inc: { totalAmount: amount } },
+        { $inc: { totalAmount: currentAmount } },
         { upsert: true, new: true }
       );
+
+      const credentials = {
+        email : user_email,
+        password : password
+      }
+
+      const emailSubject = `Welcome to PrimeCoz - Your Account Credentials`;
+      
+      try {
+        await sendEmails([{email:user_email}] , emailSubject , generateHTMLEmail(user_name, credentials, plan))
+        console.log(`Credentials email sent to ${user_email}`);
+
+      } catch (emailError) {
+        console.error('Email sending failed:', emailError);
+      }
 
     } catch (err) {
       if (err.code === 11000) { // Duplicate email
@@ -376,6 +399,42 @@ app.get('/api/members', async (req, res) => {
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
+
+function generateHTMLEmail(userName, credentials, plan) {
+  const loginUrl = process.env.FRONTEND_URL || 'https://primecoz.com/login';
+
+  return `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6;">
+      <p>Hi ${userName},</p>
+
+      <p>Welcome to <strong>PrimeCoz</strong>! 🎉</p>
+
+      <p>Your payment for <strong>${plan}</strong> has been processed successfully, and your account is now ready.</p>
+
+      <p><strong>LOGIN CREDENTIALS:</strong><br>
+      Email: ${credentials.email}<br>
+      Password: ${credentials.password}</p>
+
+      <p>⚠️ <strong>IMPORTANT:</strong> Please save these credentials securely.</p>
+
+      <p>
+        <a href="${loginUrl}" style="color: #1a73e8;">Login here</a>
+      </p>
+
+      <p>What's next?</p>
+      <ul>
+        <li>Login to your account using the credentials above</li>
+        <li>Start exploring your ${plan} features</li>
+        <li>Access exclusive BPO resources and training materials</li>
+      </ul>
+
+      <p>If you have any questions, please contact our support team.</p>
+
+      <p>Best regards,<br>
+      The PrimeCoz Team</p>
+    </div>
+  `;
+}
 
 app.listen(PORT,'0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
