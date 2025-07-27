@@ -1,21 +1,31 @@
+require('dotenv').config();
 const express = require('express');
 const multer = require('multer');
 const xlsx = require('xlsx');
 const nodemailer = require('nodemailer');
 const cors = require('cors');
-const path = require('path');
+const Razorpay = require('razorpay');
+const crypto = require('crypto');
 const fs = require('fs');
-require('dotenv').config();
+
+const Member = require('./models/Member');
+const bcrypt = require('bcryptjs');
+const mongoose = require('mongoose');
+const saltRounds = 10;
+
+const MONGO_URI = process.env.MONGODB_URL;
+
+mongoose.connect(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+  .then(() => console.log('MongoDB connected'))
+  .catch(err => console.error('MongoDB connection error:', err));
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     const uploadDir = './uploads';
@@ -45,10 +55,9 @@ const upload = multer({
   }
 });
 
-// Email configuration
 const createTransporter = () => {
   return nodemailer.createTransport({
-    service: 'gmail', // You can change this to your email service
+    service: 'gmail', 
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS
@@ -56,7 +65,6 @@ const createTransporter = () => {
   });
 };
 
-// Function to read Excel file and extract emails
 const extractEmailsFromExcel = (filePath) => {
   try {
     const workbook = xlsx.readFile(filePath);
@@ -66,7 +74,6 @@ const extractEmailsFromExcel = (filePath) => {
     
     const emails = [];
     
-    // Look for email addresses in all columns
     data.forEach((row, index) => {
       Object.keys(row).forEach(key => {
         const value = row[key];
@@ -86,13 +93,11 @@ const extractEmailsFromExcel = (filePath) => {
   }
 };
 
-// Email validation function
 const isValidEmail = (email) => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return emailRegex.test(email);
 };
 
-// Function to send emails
 const sendEmails = async (emails, subject, body) => {
   const transporter = createTransporter();
   const results = [];
@@ -127,26 +132,6 @@ const sendEmails = async (emails, subject, body) => {
   return results;
 };
 
-// Stripe integration
-const Stripe = require('stripe');
-const stripe = Stripe(process.env.STRIPE_SECRET_KEY || ''); // Replace with your secret key
-
-// Payment endpoint
-app.post('/create-payment-intent', async (req, res) => {
-  const { amount } = req.body;
-  try {
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount,
-      currency: 'usd',
-      automatic_payment_methods: { enabled: true },
-    });
-    res.json({ clientSecret: paymentIntent.client_secret });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Routes
 app.get('/', (req, res) => {
   res.json({
     message: 'Excel Email Sender API',
@@ -157,8 +142,7 @@ app.get('/', (req, res) => {
   });
 });
 
-// Upload and process Excel file
-app.post('/upload', upload.single('excelFile'), (req, res) => {
+app.post('/api/upload', upload.single('excelFile'), (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
@@ -184,8 +168,7 @@ app.post('/upload', upload.single('excelFile'), (req, res) => {
   }
 });
 
-// Send emails endpoint
-app.post('/send-emails', async (req, res) => {
+app.post('/api/send-emails', async (req, res) => {
   try {
     const { emails, subject, body } = req.body;
     
@@ -212,8 +195,7 @@ app.post('/send-emails', async (req, res) => {
   }
 });
 
-// Combined endpoint - upload and send emails in one request
-app.post('/upload-and-send', upload.single('excelFile'), async (req, res) => {
+app.post('/api/upload-and-send', upload.single('excelFile'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
@@ -251,8 +233,7 @@ app.post('/upload-and-send', upload.single('excelFile'), async (req, res) => {
   }
 });
 
-// Test email configuration
-app.get('/test-email-config', async (req, res) => {
+app.get('/api/test-email-config', async (req, res) => {
   try {
     const transporter = createTransporter();
     await transporter.verify();
@@ -262,57 +243,114 @@ app.get('/test-email-config', async (req, res) => {
   }
 });
 
-app.post('/create-payment-intent', async (req, res) => {
+app.post('/api/create-order', async (req, res) => {
   try {
-    const { amount } = req.body;
-    
-    // Create a PaymentIntent with the order amount and currency
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: amount, // amount in paise (33 INR = 3300 paise)
-      currency: 'inr',
-      automatic_payment_methods: {
-        enabled: true,
-      },
+    const { amount, plan, user_email, user_name } = req.body;
+
+    const razorpay = new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID,
+      key_secret: process.env.RAZORPAY_KEY_SECRET,
     });
+
+    const options = {
+      amount: amount,
+      currency: 'INR',
+      receipt: `receipt_${Date.now()}`,
+      notes: {
+        plan: plan,
+        user_email: user_email,
+        user_name: user_name
+      }
+    };
+
+    const order = await razorpay.orders.create(options);
 
     res.json({
-      clientSecret: paymentIntent.client_secret,
+      success: true,
+      orderId: order.id,
+      amount: order.amount
     });
+
   } catch (error) {
-    console.error('Error creating payment intent:', error);
-    res.status(500).json({ error: error.message });
+    console.error('Order creation error:', error);
+    res.status(500).json({ error: 'Failed to create order' });
   }
 });
 
-// Webhook endpoint for handling successful payments
-app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
-  const sig = req.headers['stripe-signature'];
-  const endpointSecret = 'whsec_XXXXXXXXXXXXXXXXXXXXXXXX'; // Replace with your webhook secret
-
-  let event;
-
+app.post('/api/verify-payment', async (req, res) => {
   try {
-    event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
-  } catch (err) {
-    console.error('Webhook signature verification failed:', err.message);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
-  }
+    const { 
+      razorpay_payment_id, 
+      razorpay_order_id, 
+      razorpay_signature,
+      user_email,
+      user_name,
+      plan
+    } = req.body;
 
-  // Handle the event
-  switch (event.type) {
-    case 'payment_intent.succeeded':
-      const paymentIntent = event.data.object;
-      console.log('Payment succeeded:', paymentIntent.id);
-      // Here you can add logic to create user account, send welcome email, etc.
-      break;
-    default:
-      console.log(`Unhandled event type ${event.type}`);
-  }
+    const expectedSignature = crypto
+      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+      .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+      .digest('hex');
 
-  res.json({ received: true });
+    if (expectedSignature !== razorpay_signature) {
+      return res.status(400).json({ error: 'Invalid payment signature' });
+    }
+
+    const password = 'bpo' + Math.floor(100000 + Math.random() * 900000);
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+    const newMember = new Member({
+      name: user_name,
+      email: user_email,
+      password: hashedPassword,
+      plan: plan
+    });
+
+    try {
+      await newMember.save();
+    } catch (err) {
+      if (err.code === 11000) { // Duplicate email
+        return res.status(400).json({ error: 'Email already exists' });
+      }
+      throw err;
+    }
+
+    res.json({
+      success: true,
+      credentials: {
+        email: user_email,
+        password: password
+      }
+    });
+
+  } catch (error) {
+    console.error('Payment verification error:', error);
+    res.status(500).json({ error: 'Payment verification failed' });
+  }
 });
 
-app.listen(PORT, () => {
+app.post('/api/member-login', async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ success: false, message: 'Missing fields' });
+  }
+  try {
+    const user = await Member.findOne({ email });
+    if (!user) {
+      return res.json({ success: false, message: 'Invalid credentials' });
+    }
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) {
+      return res.json({ success: false, message: 'Invalid credentials' });
+    }
+    res.json({ success: true, user: { name: user.name, email: user.email, plan: user.plan } });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+app.listen(PORT,'0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Visit http://localhost:${PORT} for API documentation`);
 });
