@@ -9,6 +9,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 
 const Member = require('./models/Member');
+const PaymentTotal = require('./models/PaymentTotal');
 const bcrypt = require('bcryptjs');
 const mongoose = require('mongoose');
 const saltRounds = 10;
@@ -309,6 +310,13 @@ app.post('/api/verify-payment', async (req, res) => {
 
     try {
       await newMember.save();
+
+      await PaymentTotal.findOneAndUpdate(
+        {},
+        { $inc: { totalAmount: amount } },
+        { upsert: true, new: true }
+      );
+
     } catch (err) {
       if (err.code === 11000) { // Duplicate email
         return res.status(400).json({ error: 'Email already exists' });
@@ -346,6 +354,25 @@ app.post('/api/member-login', async (req, res) => {
     }
     res.json({ success: true, user: { name: user.name, email: user.email, plan: user.plan } });
   } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+app.get('/api/payment-total', async (req, res) => {
+  try {
+    // Assuming you have only one document in PaymentTotal collection
+    const totalDoc = await PaymentTotal.findOne();
+    res.json({ totalAmount: totalDoc ? totalDoc.totalAmount : 0 });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch total amount' });
+  }
+});
+
+app.get('/api/members', async (req, res) => {
+  try {
+    const members = await Member.find({}, '-password'); // Exclude password field
+    res.json({ success: true, members });
+  } catch (error) {
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
