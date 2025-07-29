@@ -112,8 +112,6 @@ const sendEmails = async (emails, subject, body) => {
         html: body
       };
 
-      console.log(mailOptions)
-      
       const result = await transporter.sendMail(mailOptions);
       results.push({
         email: emailData.email,
@@ -121,8 +119,6 @@ const sendEmails = async (emails, subject, body) => {
         messageId: result.messageId
       });
 
-      console.log(results)
-      
       console.log(`Email sent successfully to ${emailData.email}`);
     } catch (error) {
       results.push({
