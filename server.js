@@ -172,7 +172,9 @@ app.post('/api/upload', upload.single('excelFile'), (req, res) => {
 app.post('/api/send-emails', async (req, res) => {
   try {
     const { emails, subject, body } = req.body;
-    
+
+    body = body.replace(/\n/g, '<br>');
+
     if (!emails || !Array.isArray(emails) || emails.length === 0) {
       return res.status(400).json({ error: 'No email addresses provided' });
     }
