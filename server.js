@@ -751,6 +751,9 @@ app.post('/api/whatsapp/send', async (req, res) => {
 
   const results = [];
 
+  // helper function to wait
+  const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
   for (const contact of contacts) {
     if (!contact.phone || !/^\d{10,15}$/.test(contact.phone)) {
       results.push({ contact, success: false, error: 'Invalid phone number format' });
@@ -758,19 +761,23 @@ app.post('/api/whatsapp/send', async (req, res) => {
     }
 
     try {
-      let number = ""
-        if(!contact.phone.startsWith('91')) {
-          number = `91${contact.phone}@c.us`
-        }else{
-          number = `${contact.phone}@c.us`
-        }
-        await client.sendMessage(number, message);
-        console.log(`[WhatsApp] Message sent to ${contact.name || contact.phone}`);
-        results.push({ contact, success: true });
+      let number = "";
+      if (!contact.phone.startsWith('91')) {
+        number = `91${contact.phone}@c.us`;
+      } else {
+        number = `${contact.phone}@c.us`;
+      }
+
+      await client.sendMessage(number, message);
+      console.log(`[WhatsApp] Message sent to ${contact.name || contact.phone}`);
+      results.push({ contact, success: true });
     } catch (err) {
       console.error(`[WhatsApp] Error sending message to ${contact.phone}:`, err.message);
       results.push({ contact, success: false, error: err.message });
     }
+
+    // wait 10 seconds before the next contact
+    await delay(10000);
   }
 
   res.json({
