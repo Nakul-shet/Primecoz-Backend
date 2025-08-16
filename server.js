@@ -350,7 +350,7 @@ const sendEmails = async (emails, subject, body) => {
   for (const emailData of emails) {
     try {
       const mailOptions = {
-        from: process.env.EMAIL_USER,
+        from: `"Team Primecoz" <${process.env.EMAIL_USER}>`,
         to: emailData.email,
         subject: subject,
         html: body
@@ -479,7 +479,7 @@ app.post('/api/send-emails', async (req, res) => {
     let { emails, subject, body } = req.body;
 
     // Ensure HTML line breaks
-    body = body.replace(/\n/g, '<br>');
+    // body = body.replace(/\n/g, '<br>');
 
     if (!emails || !Array.isArray(emails) || emails.length === 0) {
       return res.status(400).json({ error: 'No email addresses provided' });
